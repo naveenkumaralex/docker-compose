@@ -1,0 +1,123 @@
+pipeline {
+    agent none
+    options {
+        ansiColor('xterm')
+        timestamps()
+        buildDiscarder(logRotator(daysToKeepStr: '30', numToKeepStr: '100', artifactDaysToKeepStr: '5'))
+    }
+
+    parameters {
+        choice(name:'ForceReboot', choices: ['No', 'Yes'], description:'select the choice for reboot')
+        choice(name:'RoleTags', choices: ['MunichReVDI'], description:'Which tagged roles should we run')
+        string(defaultValue: '', description: 'AccountId of the servers', name: 'AccountId', trim: true)
+        text(defaultValue: 'IPaddress1\nIPaddress2\nIPadress3\netc\n', description:'Enter the Private IP address list to run ansible Playbook', name:'Ipaddresslist')
+    }
+
+    stages {
+        stage('Set Build Title') {
+            steps {
+                script
+                  {
+                    currentBuild.displayName = "${BUILD_NUMBER} - ${AccountId}"
+                  }
+            }
+        }
+        stage('Perform Ansible Actions') {
+            //options {
+              //  lock resource: "Ansible:${AccountId}:${BUILD_NUMBER}"
+            //}
+            environment {
+                HOME = "$WORKSPACE"
+                DOTNET_CLI_TELEMETRY_OPTOUT = 'true'
+                S3_FILES_DEFAULT_AWS_REGION = 'us-west-2'
+                ANSIBLE_JINJA2_NATIVE = 'True'
+                ANSIBLE_INVENTORY_CACHE = 'True'
+                ANSIBLE_INVENTORY_CACHE_PLUGIN = 'jsonfile'
+                ANSIBLE_CACHE_PLUGIN_CONNECTION = 'AdvancedDeploymentAutomationManager/ansible/cache.json'
+                ANSIBLE_COLLECTIONS_PATHS='/usr/share/ansible/collections'
+                ANSIBLE_ROLES_PATH = "${WORKSPACE}/AdvancedDeploymentAutomationManager/ansible/roles"
+                TSS_BASE_URL = 'https://secretserver.sdlproducts.com/'
+                TSS_DOMAIN = 'SDLPRODUCTS'
+                AWS_STS_REGIONAL_ENDPOINTS = 'regional'
+                ANSIBLE_DISPLAY_SKIPPED_HOSTS = 'False'
+            }
+            agent {
+                // dockerfile {
+                //   filename 'Dockerfiles/Dockerfile.ansible'
+                //   args '--entrypoint=\'\' --ulimit core=0 -u 0:0'
+                //   label 'Linux'
+                // }
+                docker {
+                    image '436437695588.dkr.ecr.us-west-2.amazonaws.com/ceat-jenkins/ansible:latest'
+                    registryCredentialsId 'ecr:us-west-2:jenkins-ec2-slave-iam-role'
+                    registryUrl 'https://436437695588.dkr.ecr.us-west-2.amazonaws.com'
+                    args '--entrypoint=\'\' --ulimit core=0 -u 0:0'
+                    label 'Linux'
+                }
+            }
+            steps {
+                writeFile file: 'AdvancedDeploymentAutomationManager/ansible/Ipaddresslist.txt', text: params.Ipaddresslist
+                wrap(delegate: [
+          $class: 'ServerBuildWrapper',
+          secrets: [
+            [
+              id: 7866,
+              mappings: [
+                [environmentVariable: 'AWS_ACCESS_KEY', field: 'Username'],
+                [environmentVariable: 'AWS_SECRET_KEY', field: 'Password']
+              ]
+            ],
+            [
+              id: 12246,
+              mappings: [
+                [environmentVariable: 'AWS_ACCESS_KEY_ForGeneratingStsTokenSessions', field: 'AWS API Access Key'],
+                [environmentVariable: 'AWS_SECRET_KEY_ForGeneratingStsTokenSessions', field: 'AWS API Secret Key']
+              ]
+            ],
+            [
+              id: 11861,
+              mappings: [
+                [environmentVariable: 'AnsibleUser', field: 'Username'],
+                [environmentVariable: 'AnsiblePassword', field: 'Password'],
+                [environmentVariable: 'AnsibleUserSsh', field: 'Username'],
+                [environmentVariable: 'AnsiblePasswordSsh', field: 'Password']
+              ]
+            ],
+            [
+              id: 8559,
+              mappings: [
+                [environmentVariable: 'TSS_USERNAME', field: 'ApiKey'],
+                [environmentVariable: 'TSS_PASSWORD', field: 'Password'],
+                [environmentVariable: 'secret_server_username', field: 'Username'],
+                [environmentVariable: 'secret_server_password', field: 'Password']
+              ]
+            ],
+            [
+              id: 7866,
+              mappings: [
+                [environmentVariable: 'S3_Adam_Installer_Files_Access_Key', field: 'Username'],
+                [environmentVariable: 'S3_Adam_Installer_Files_Secret_Key', field: 'Password']
+              ]
+            ]
+          ]
+        ]) {
+              dir(path: 'AdvancedDeploymentAutomationManager/ansible/roles/products/') {
+                  pwsh'''
+                      $ErrorActionPreference = "Stop"
+
+                      Import-Module .\\AnsibleAdamHelpers.psm1
+                      New-AnsibleAwsInventory -AwsAccessKeyAutomationAccountToGetAccountsFromS3 $env:AWS_ACCESS_KEY -AwsSecretKeyAutomationAccountToGetAccountsFromS3 $env:AWS_SECRET_KEY -AwsAccessKeyForGeneratingStsTokenSessions $env:AWS_ACCESS_KEY_ForGeneratingStsTokenSessions -AwsSecretKeyForGeneratingStsTokenSessions $env:AWS_SECRET_KEY_ForGeneratingStsTokenSessions -TemplateLocation ".\\templates\\inventory\\aws_ec2.yml" -InventoryFolder "inventory" -SingleAccountInventory $env:AccountId -ConnectViaPrivateIp
+                      $restatus="$env:ForceReboot"
+                      write-host "ForceReboot status is $restatus"
+
+                      /opt/ansible-venv/bin/ansible-galaxy collection list
+                      #/opt/ansible-venv/bin/ansible-playbook -l "172.31.84.53,172.31.84.179" -i inventory -vvvvv playbooks/main.yml
+                      #/opt/ansible-venv/bin/ansible-playbook -l Ipaddresslist.txt -i inventory --extra-vars '{"ForceReboot":"${params.ForceReboot}"}' -vvvvv playbooks/main.yml
+                      #/opt/ansible-venv/bin/ansible-playbook -l "$env:Ipaddresslist" -i inventory --extra-vars "ForceReboot=$restatus ConnectViaSsm=true" MunichReVDI/main.yml  --tags "common,$env:RoleTags"
+                  '''
+              }
+        }
+            }
+        }
+    }
+}

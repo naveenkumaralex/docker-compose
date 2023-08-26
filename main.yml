@@ -1,0 +1,43 @@
+- name: Load config mapping for RDSFarm script
+  include_vars:
+    file: configT.json 
+
+- name: Install RDS for Munichre on Windows (x86_64)
+  ansible.builtin.debug:
+    msg: Just a debug message to prove we are running this task on Windows based OS
+  when: ansible_os_family == 'Windows'
+  #TODO: check if we're in a valid maintenance window for this machine
+
+  #ToDo Install RDS on Munichre VDI
+- name: Install RDS on Munichre VDI Windows (x86_64)
+  block:
+    - name: Create temporary s3 downloads directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: s3
+      register: s3tempdir
+      delegate_to: localhost
+    - name: Copy RDS Deployment scripts from S3
+      amazon.aws.aws_s3:
+        bucket: adam-installer-files
+        object: /MunicreRDS/DeploymentScripts/Install_RDSFarm-T3.ps1
+        dest: "{{ s3tempdir.path }}/Install_RDSFarm-T3.ps1"
+        mode: get
+        aws_access_key: "{{ adam_install_files_s3_access_key }}"
+        aws_secret_key: "{{ adam_install_files_s3_secret_key }}"
+      delegate_to: localhost
+    - name: copy MunicreRDS VDI Deploymentscript to win server
+      win_copy:
+        src: "{{ s3tempdir.path }}/Install_RDSFarm-T3.ps1"
+        dest: C:\rds\Install_RDSFarm-T3.ps1
+    - name: Run Deploymentscript Locally
+      ansible.windows.win_powershell:
+        script: C:\rds\Install_RDSFarm-T3.ps1
+      register: result
+  always:
+    - name: Clean up temporary s3 downloads directory
+      ansible.builtin.file:
+        path: "{{ s3tempdir.path }}"
+        state: absent
+      when: s3tempdir.path is defined
+      delegate_to: localhost
