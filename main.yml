@@ -1,7 +1,5 @@
 - name: Load config mapping for RDSFarm script
-  ansible.builtin.include_vars:
-    file: configT.json
-    name: configT
+  ansible.builtin.include_vars: configT.json
 
 - name: Install RDS for Munichre on Windows (x86_64)
   ansible.builtin.debug:
