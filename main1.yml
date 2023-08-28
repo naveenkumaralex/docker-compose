@@ -1,9 +1,3 @@
 - name: Load policy id mapping
   vars:
     myfile: "~configT.json"
-
-- name: Install trendmicro on Windows (x86_64)
-  ansible.builtin.debug:
-      msg: Just a debug message to prove we are running this task on Windows based OS
-  when: ansible_os_family == 'Windows'
-  #TODO: check if we're in a valid maintenance window for this machine
