@@ -1,7 +1,6 @@
 - name: Load policy id mapping
-  include_vars:
-    file: policy_ids.yml
-    name: policy_ids
+  vars:
+    myfile: "~configT.json"
 
 - name: Install trendmicro on Windows (x86_64)
   ansible.builtin.debug:
