@@ -1,8 +1,0 @@
-# The latest powershell gives us most functionality
-- name: Make sure Windows Management Framework and PowerShell is latest version
-  win_chocolatey:
-     name: powershell
-     state: latest
-  register: check_powershell5
-  become: yes
-  become_method: runas
